@@ -9,6 +9,8 @@ use App\Models\Module;
 use App\Models\User;
 use App\Models\UserNote;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -126,5 +128,79 @@ class UserNotesTest extends TestCase
             ->assertSee('Feb Batch')
             ->assertSee('Chart Analysis')
             ->assertSee('Combination Patterns');
+    }
+
+    public function test_student_can_upload_example_image_with_note(): void
+    {
+        Storage::fake('public');
+        $student = User::factory()->create(['role' => 'user']);
+        $file = UploadedFile::fake()->image('chart-example.png');
+
+        Livewire::actingAs($student)
+            ->test(NotesManager::class)
+            ->set('view', 'form')
+            ->set('title', 'Pattern example')
+            ->set('body', 'See attached chart.')
+            ->set('newImages', [$file])
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertSet('view', 'list');
+
+        $note = UserNote::query()->where('title', 'Pattern example')->first();
+        $this->assertNotNull($note);
+        $this->assertCount(1, $note->images);
+        Storage::disk('public')->assertExists($note->images->first()->file_path);
+
+        $this->actingAs($student)
+            ->get(route('notes.index'))
+            ->assertOk()
+            ->assertSee('Pattern example');
+    }
+
+    public function test_admin_shared_note_image_is_visible_to_student(): void
+    {
+        Storage::fake('public');
+        $student = User::factory()->create(['role' => 'user']);
+        $admin = User::factory()->create(['role' => 'admin', 'account_id' => null]);
+        $file = UploadedFile::fake()->image('admin-example.jpg');
+
+        Livewire::actingAs($admin)
+            ->test(NotesManager::class)
+            ->set('view', 'form')
+            ->set('title', 'Admin chart example')
+            ->set('body', 'Use this setup.')
+            ->set('is_shared', true)
+            ->set('newImages', [$file])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $note = UserNote::query()->where('title', 'Admin chart example')->firstOrFail();
+
+        Livewire::actingAs($student)
+            ->test(NotesManager::class)
+            ->call('viewNote', $note->id)
+            ->assertSet('view', 'read')
+            ->assertSee('Admin chart example')
+            ->assertSee('Use this setup');
+    }
+
+    public function test_student_can_upload_pdf_with_note(): void
+    {
+        Storage::fake('public');
+        $student = User::factory()->create(['role' => 'user']);
+        $file = UploadedFile::fake()->create('example.pdf', 100, 'application/pdf');
+
+        Livewire::actingAs($student)
+            ->test(NotesManager::class)
+            ->set('view', 'form')
+            ->set('title', 'PDF example')
+            ->set('body', 'See attached PDF.')
+            ->set('newImages', [$file])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $note = UserNote::query()->where('title', 'PDF example')->firstOrFail();
+        $this->assertCount(1, $note->images);
+        $this->assertTrue($note->images->first()->isPdf());
     }
 }

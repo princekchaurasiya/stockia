@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class UserNote extends Model
 {
@@ -27,6 +28,11 @@ class UserNote extends Model
     public function lecture(): BelongsTo
     {
         return $this->belongsTo(Lecture::class);
+    }
+
+    public function images(): HasMany
+    {
+        return $this->hasMany(UserNoteImage::class)->orderBy('sort_order');
     }
 
     public function scopeShared($query)

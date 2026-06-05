@@ -15,24 +15,6 @@ class AdminDocumentManager extends Component
 {
     use WithFileUploads;
 
-    private function debugLog(string $hypothesisId, string $location, string $message, array $data = []): void
-    {
-        // #region agent log
-        @file_put_contents(
-            base_path('.cursor/debug-484d05.log'),
-            json_encode([
-                'sessionId' => '484d05',
-                'hypothesisId' => $hypothesisId,
-                'location' => $location,
-                'message' => $message,
-                'data' => $data,
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ]).PHP_EOL,
-            FILE_APPEND
-        );
-        // #endregion
-    }
-
     public $lecture_id = null;
     public ?int $document_id = null;
     public string $title = '';
@@ -86,12 +68,6 @@ class AdminDocumentManager extends Component
         $lectureId = (int) $data['lecture_id'];
         $uploadedFile = $this->file;
 
-        $this->debugLog('D', 'AdminDocumentManager.php:save:entry', 'Document save started', [
-            'document_id' => $this->document_id,
-            'lecture_id' => $lectureId,
-            'has_file' => (bool) $uploadedFile,
-        ]);
-
         DB::beginTransaction();
 
         try {
@@ -100,6 +76,7 @@ class AdminDocumentManager extends Component
                 : new LectureDocument();
 
             $oldPath = $document->file_path ?? null;
+            $storedPath = null;
 
             if ($uploadedFile) {
                 $extension = strtolower($uploadedFile->getClientOriginalExtension());
@@ -127,28 +104,18 @@ class AdminDocumentManager extends Component
 
             DB::commit();
 
-            if (isset($storedPath) && $oldPath && $oldPath !== $storedPath && Storage::disk('public')->exists($oldPath)) {
+            if ($storedPath && $oldPath && $oldPath !== $storedPath && Storage::disk('public')->exists($oldPath)) {
                 Storage::disk('public')->delete($oldPath);
             }
 
             $this->document_id = $document->id;
             session()->flash('success_document', 'Document saved.');
-
-            $this->debugLog('D', 'AdminDocumentManager.php:save:success', 'Document saved', [
-                'document_id' => $document->id,
-                'file_path' => $document->file_path,
-                'file_exists' => Storage::disk('public')->exists($document->file_path),
-            ]);
         } catch (\Throwable $e) {
             DB::rollBack();
 
             if (isset($storedPath) && Storage::disk('public')->exists($storedPath)) {
                 Storage::disk('public')->delete($storedPath);
             }
-
-            $this->debugLog('D', 'AdminDocumentManager.php:save:error', 'Document save failed', [
-                'error' => $e->getMessage(),
-            ]);
 
             Log::error('Failed to save lecture document', [
                 'lecture_id' => $this->lecture_id,
@@ -207,4 +174,3 @@ class AdminDocumentManager extends Component
         return view('livewire.learning.admin-document-manager', compact('lectures', 'documents'));
     }
 }
-

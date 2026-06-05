@@ -41,6 +41,82 @@
                         <textarea class="form-control @error('body') is-invalid @enderror" rows="10" wire:model="body" placeholder="Write your trading notes here…"></textarea>
                         @error('body')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
+                    <div class="col-12">
+                        @if($phpUploadLimitLow)
+                            <div class="alert alert-warning py-2 small">
+                                This server only allows uploads up to <strong>{{ $maxImageSizeLabel }}</strong> per file.
+                                Use smaller images, or restart with <code>composer dev</code> for a higher limit.
+                            </div>
+                        @endif
+                        <label class="form-label">Example files (optional)</label>
+                        <input type="file"
+                               class="form-control @error('newImages') is-invalid @enderror @error('newImages.*') is-invalid @enderror"
+                               wire:model="newImages"
+                               accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf"
+                               multiple>
+                        @error('newImages')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+                        @error('newImages.*')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+                        <p class="small text-muted mb-0 mt-1">
+                            Upload chart screenshots, examples, or PDFs. PNG, JPG, WebP, GIF, or PDF up to {{ $maxImageSizeLabel }} each.
+                            Max {{ \App\Livewire\Portal\NotesManager::MAX_ATTACHMENTS_PER_NOTE }} files per note.
+                        </p>
+                        <div wire:loading wire:target="newImages" class="small text-muted mt-2">Uploading…</div>
+                    </div>
+
+                    @if($editingNote && $editingNote->images->isNotEmpty())
+                        <div class="col-12">
+                            <p class="small fw-semibold mb-2">Saved files</p>
+                            <div class="note-images-grid note-images-grid--editable">
+                                @foreach($editingNote->images as $image)
+                                    <div class="note-image-edit-item" wire:key="existing-image-{{ $image->id }}">
+                                        @include('livewire.portal.partials.note-attachment-thumb', [
+                                            'url' => $image->url(),
+                                            'name' => $image->original_name ?: ($image->isPdf() ? 'Example PDF' : 'Example image'),
+                                            'isPdf' => $image->isPdf(),
+                                        ])
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-danger note-image-remove"
+                                                wire:click="removeExistingImage({{ $image->id }})"
+                                                wire:confirm="Remove this file?">
+                                            Remove
+                                        </button>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+
+                    @if(count($newImages) > 0)
+                        <div class="col-12">
+                            <p class="small fw-semibold mb-2">New uploads</p>
+                            <div class="note-images-grid note-images-grid--editable">
+                                @foreach($newImages as $index => $image)
+                                    @if($image)
+                                        @php $isPdf = strtolower($image->getClientOriginalExtension()) === 'pdf'; @endphp
+                                        <div class="note-image-edit-item" wire:key="new-image-{{ $index }}">
+                                            @if($isPdf)
+                                                <div class="note-image-thumb">
+                                                    <span class="note-file-thumb">
+                                                        <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i>
+                                                        <span class="note-file-thumb-label">{{ $image->getClientOriginalName() }}</span>
+                                                    </span>
+                                                </div>
+                                            @else
+                                                <div class="note-image-thumb">
+                                                    <img src="{{ $image->temporaryUrl() }}" alt="New upload preview" loading="lazy">
+                                                </div>
+                                            @endif
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-secondary note-image-remove"
+                                                    wire:click="removeNewImage({{ $index }})">
+                                                Remove
+                                            </button>
+                                        </div>
+                                    @endif
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
                     @if($this->canShareNotes())
                         <div class="col-12">
                             <div class="form-check">
@@ -77,6 +153,7 @@
                 </div>
                 <div class="border rounded p-3 bg-light">
                     {!! nl2br(e($viewingNote->body)) !!}
+                    @include('livewire.portal.partials.note-images', ['note' => $viewingNote])
                 </div>
                 @if($viewingNote->user_id === auth()->id())
                     <div class="mt-3 d-flex gap-2">
@@ -112,6 +189,9 @@
                                     @if($note->lecture)
                                         · @include('livewire.portal.partials.lecture-context', ['lecture' => $note->lecture, 'inline' => true])
                                     @endif
+                                    @if($note->images->isNotEmpty())
+                                        · <span class="badge text-bg-light border"><i class="bi bi-paperclip me-1"></i>{{ $note->images->count() }}</span>
+                                    @endif
                                 </div>
                             </div>
                             <div class="d-flex gap-1">
@@ -143,6 +223,9 @@
                                     {{ $note->user->name }} · {{ $note->updated_at->format('d M Y') }}
                                     @if($note->lecture)
                                         · @include('livewire.portal.partials.lecture-context', ['lecture' => $note->lecture, 'inline' => true])
+                                    @endif
+                                    @if($note->images->isNotEmpty())
+                                        · <span class="badge text-bg-light border"><i class="bi bi-paperclip me-1"></i>{{ $note->images->count() }}</span>
                                     @endif
                                 </div>
                             </div>

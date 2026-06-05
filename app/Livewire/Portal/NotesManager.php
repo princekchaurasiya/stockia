@@ -4,27 +4,71 @@ namespace App\Livewire\Portal;
 
 use App\Models\Lecture;
 use App\Models\UserNote;
+use App\Models\UserNoteImage;
+use App\Support\UploadLimits;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Livewire\WithPagination;
 
 class NotesManager extends Component
 {
+    use WithFileUploads;
     use WithPagination;
 
+    public const MAX_ATTACHMENTS_PER_NOTE = 5;
+
+    /** @deprecated Use MAX_ATTACHMENTS_PER_NOTE */
+    public const MAX_IMAGES_PER_NOTE = self::MAX_ATTACHMENTS_PER_NOTE;
+
     public ?int $noteId = null;
+
     public string $title = '';
+
     public string $body = '';
+
     public $lecture_id = null;
+
     public bool $is_shared = false;
+
     public string $view = 'list';
+
     public ?int $viewingId = null;
+
+    /** @var array<int, mixed> */
+    public $newImages = [];
+
+    protected function messages(): array
+    {
+        $maxLabel = UploadLimits::maxFileMegabytesLabel();
+
+        return [
+            'newImages.max' => 'You can attach up to '.self::MAX_ATTACHMENTS_PER_NOTE.' files per note.',
+            'newImages.*.mimes' => 'Each file must be PNG, JPG, WebP, GIF, or PDF.',
+            'newImages.*.max' => "Each file must be {$maxLabel} or smaller.",
+            'newImages.*.uploaded' => "Upload failed. Use files of {$maxLabel} or less. If the file is small, restart the dev server with composer dev or raise PHP upload_max_filesize.",
+        ];
+    }
 
     protected function rules(): array
     {
+        $existingCount = 0;
+        if ($this->noteId) {
+            $existingCount = UserNoteImage::query()
+                ->where('user_note_id', $this->noteId)
+                ->count();
+        }
+        $maxNew = max(0, self::MAX_ATTACHMENTS_PER_NOTE - $existingCount);
+        $maxKb = UploadLimits::maxFileKilobytes();
+
         $rules = [
             'title' => ['required', 'string', 'max:255'],
             'body' => ['required', 'string'],
             'lecture_id' => ['nullable', 'exists:lectures,id'],
+            'newImages' => ['nullable', 'array', 'max:'.$maxNew],
+            'newImages.*' => ['file', 'max:'.$maxKb, 'mimes:jpeg,jpg,png,webp,gif,pdf'],
         ];
 
         if ($this->canShareNotes()) {
@@ -41,7 +85,7 @@ class NotesManager extends Component
 
     public function createNew(): void
     {
-        $this->reset(['noteId', 'title', 'body', 'lecture_id', 'is_shared', 'viewingId']);
+        $this->reset(['noteId', 'title', 'body', 'lecture_id', 'is_shared', 'viewingId', 'newImages']);
         $this->view = 'form';
         $this->is_shared = false;
         $this->lecture_id = null;
@@ -54,12 +98,18 @@ class NotesManager extends Component
 
     public function edit(int $id): void
     {
-        $note = UserNote::whereKey($id)->where('user_id', auth()->id())->firstOrFail();
+        $note = UserNote::query()
+            ->with('images')
+            ->whereKey($id)
+            ->where('user_id', auth()->id())
+            ->firstOrFail();
+
         $this->noteId = $note->id;
         $this->title = $note->title;
         $this->body = $note->body;
         $this->lecture_id = $note->lecture_id;
         $this->is_shared = (bool) $note->is_shared;
+        $this->newImages = [];
         $this->view = 'form';
     }
 
@@ -72,9 +122,30 @@ class NotesManager extends Component
 
     public function backToList(): void
     {
-        $this->reset(['noteId', 'title', 'body', 'lecture_id', 'is_shared', 'viewingId']);
+        $this->reset(['noteId', 'title', 'body', 'lecture_id', 'is_shared', 'viewingId', 'newImages']);
         $this->lecture_id = null;
         $this->view = 'list';
+    }
+
+    public function removeNewImage(int $index): void
+    {
+        if (! array_key_exists($index, $this->newImages)) {
+            return;
+        }
+
+        unset($this->newImages[$index]);
+        $this->newImages = array_values($this->newImages);
+    }
+
+    public function removeExistingImage(int $imageId): void
+    {
+        $image = UserNoteImage::query()
+            ->whereKey($imageId)
+            ->whereHas('userNote', fn ($query) => $query->where('user_id', auth()->id()))
+            ->firstOrFail();
+
+        Storage::disk('public')->delete($image->file_path);
+        $image->delete();
     }
 
     public function save(): void
@@ -91,12 +162,26 @@ class NotesManager extends Component
             $data['is_shared'] = false;
         }
 
-        if ($this->noteId) {
-            UserNote::whereKey($this->noteId)
-                ->where('user_id', auth()->id())
-                ->update(collect($data)->except('user_id')->toArray());
-        } else {
-            UserNote::create($data);
+        DB::beginTransaction();
+
+        try {
+            if ($this->noteId) {
+                $note = UserNote::query()
+                    ->whereKey($this->noteId)
+                    ->where('user_id', auth()->id())
+                    ->firstOrFail();
+
+                $note->update(collect($data)->except(['user_id', 'newImages'])->toArray());
+            } else {
+                $note = UserNote::create(collect($data)->except('newImages')->toArray());
+            }
+
+            $this->storeNewImages($note);
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
         }
 
         $this->backToList();
@@ -107,16 +192,51 @@ class NotesManager extends Component
 
     public function delete(int $id): void
     {
-        UserNote::whereKey($id)->where('user_id', auth()->id())->delete();
+        $note = UserNote::query()
+            ->with('images')
+            ->whereKey($id)
+            ->where('user_id', auth()->id())
+            ->firstOrFail();
+
+        foreach ($note->images as $image) {
+            Storage::disk('public')->delete($image->file_path);
+        }
+
+        $note->delete();
+
         $this->backToList();
         $this->resetPage('myPage');
         $this->resetPage('sharedPage');
         session()->flash('success', 'Note deleted.');
     }
 
+    protected function storeNewImages(UserNote $note): void
+    {
+        $sortOrder = (int) $note->images()->max('sort_order');
+
+        foreach ($this->newImages as $upload) {
+            $extension = strtolower($upload->getClientOriginalExtension());
+            $fileName = (string) Str::uuid().'.'.$extension;
+            $storedPath = $upload->storeAs('note-images', $fileName, 'public');
+
+            if (! $storedPath || ! Storage::disk('public')->exists($storedPath)) {
+                throw new \RuntimeException('Failed to store note attachment.');
+            }
+
+            $sortOrder++;
+
+            UserNoteImage::create([
+                'user_note_id' => $note->id,
+                'file_path' => $storedPath,
+                'original_name' => $upload->getClientOriginalName(),
+                'sort_order' => $sortOrder,
+            ]);
+        }
+    }
+
     protected function findAccessibleNote(int $id): UserNote
     {
-        $note = UserNote::with(['user', 'lecture.batch', 'lecture.module'])->findOrFail($id);
+        $note = UserNote::with(['user', 'lecture.batch', 'lecture.module', 'images'])->findOrFail($id);
 
         if ($note->user_id === auth()->id()) {
             return $note;
@@ -136,8 +256,17 @@ class NotesManager extends Component
             $viewingNote = $this->findAccessibleNote($this->viewingId);
         }
 
+        $editingNote = null;
+        if ($this->view === 'form' && $this->noteId) {
+            $editingNote = UserNote::query()
+                ->with('images')
+                ->whereKey($this->noteId)
+                ->where('user_id', auth()->id())
+                ->first();
+        }
+
         $sharedNotes = UserNote::shared()
-            ->with(['user', 'lecture.batch', 'lecture.module'])
+            ->with(['user', 'lecture.batch', 'lecture.module', 'images'])
             ->where('user_id', '!=', auth()->id())
             ->whereHas('user', fn ($q) => $q->whereIn('role', ['admin', 'superadmin']))
             ->orderByDesc('updated_at')
@@ -145,7 +274,7 @@ class NotesManager extends Component
 
         return view('livewire.portal.notes-manager', [
             'myNotes' => UserNote::ownedBy(auth()->id())
-                ->with(['lecture.batch', 'lecture.module'])
+                ->with(['lecture.batch', 'lecture.module', 'images'])
                 ->orderByDesc('updated_at')
                 ->paginate(10, pageName: 'myPage'),
             'sharedNotes' => $sharedNotes,
@@ -154,6 +283,9 @@ class NotesManager extends Component
                 ->orderBy('title')
                 ->get(['id', 'title', 'batch_id', 'module_id']),
             'viewingNote' => $viewingNote,
+            'editingNote' => $editingNote,
+            'maxImageSizeLabel' => UploadLimits::maxFileMegabytesLabel(),
+            'phpUploadLimitLow' => UploadLimits::isPhpLimitBelowAppMax(),
         ]);
     }
 }

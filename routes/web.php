@@ -66,8 +66,8 @@ Route::middleware('auth')->group(function () {
     Route::get('my-notes', [NotesController::class, 'index'])->name('notes.index');
     Route::get('profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::get('settings', [SettingsController::class, 'index'])->name('settings.index');
 });
-Route::get('settings', [SettingsController::class, 'index'])->name('settings.index');
 
 Route::get('data-source/{dataSourceLink}/open', [DataSourceLinkController::class, 'open'])
     ->name('data_source.open');

@@ -1,91 +1,133 @@
 <div>
-    <h2 class="h6 mb-3">Lecture</h2>
-
     @if(!$lecture)
-        <p class="text-muted small mb-0">Select a lecture to start learning.</p>
-    @else
-
-        <h3 class="h5 mb-1">{{ $lecture->title }}</h3>
-        @include('livewire.learning.partials.lecture-context', ['lecture' => $lecture])
-
-        <div class="row g-3 mt-1">
-            <div class="col-md-5">
-                <h4 class="h6">Videos</h4>
-                @if(!$videos || $videos->isEmpty())
-                    <p class="text-muted small mb-0">No videos added yet.</p>
-                @else
-                    <ul class="list-group">
-                        @foreach($videos as $index => $video)
-                            <li class="list-group-item d-flex justify-content-between align-items-center {{ $selectedVideoId === $video->id ? 'active' : '' }}">
-                                <button type="button"
-                                        class="btn btn-link p-0 text-start text-truncate text-decoration-none {{ $selectedVideoId === $video->id ? 'text-white' : '' }}"
-                                        wire:click="selectVideo({{ $video->id }})">
-                                    {{ $index + 1 }}. {{ $video->label }}
-                                </button>
-                                @if($video->video_type)
-                                    <span class="badge {{ $selectedVideoId === $video->id ? 'text-bg-light text-dark' : 'text-bg-light' }}">
-                                        {{ $video->video_type }}
-                                    </span>
-                                @endif
-                            </li>
-                        @endforeach
-                    </ul>
-                @endif
+        <div class="learning-view-empty">
+            <div class="learning-view-empty-icon">
+                <i class="bi bi-play-btn" aria-hidden="true"></i>
             </div>
-            <div class="col-md-7">
-                @php
-                    $currentVideo = $videos && $videos->isNotEmpty()
-                        ? $videos->firstWhere('id', $selectedVideoId) ?? $videos->first()
-                        : null;
-                @endphp
-
-                @if($currentVideo)
-                    <div class="ratio ratio-16x9 mb-3">
-                        <iframe
-                            src="{{ \App\Support\Youtube::embedUrl($currentVideo->youtube_url) ?? $currentVideo->youtube_url }}"
-                            title="YouTube video player"
-                            frameborder="0"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowfullscreen>
-                        </iframe>
-                    </div>
-                @else
-                    <p class="text-muted small">Add a video to start.</p>
-                @endif
-
-                @if($lecture->documents && $lecture->documents->isNotEmpty())
-                    <hr class="my-3">
-                    <h4 class="h6">Lecture resources</h4>
-                    <ul class="list-group small">
-                        @foreach($lecture->documents as $index => $document)
-                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                <a href="{{ asset('storage/'.$document->file_path) }}" target="_blank" class="text-decoration-none">
-                                    @if($document->file_type === 'pdf')
-                                        <i class="bi bi-file-earmark-pdf text-danger me-1"></i>
-                                    @elseif(in_array($document->file_type, ['ppt', 'pptx']))
-                                        <i class="bi bi-file-earmark-slides text-warning me-1"></i>
-                                    @else
-                                        <i class="bi bi-file-earmark-text me-1"></i>
-                                    @endif
-                                    {{ $index + 1 }}. {{ $document->title }}
-                                </a>
-                                <span class="badge text-bg-light text-uppercase">
-                                    {{ $document->file_type }}
-                                </span>
-                            </li>
-                        @endforeach
-                    </ul>
-                @endif
+            <h3 class="h5 mb-2">Select a lecture</h3>
+            <p class="text-muted mb-0">Choose a lecture from the curriculum on the left to watch videos, download resources, and read notes.</p>
+        </div>
+    @else
+        <div class="learning-view-header">
+            <div>
+                <h2 class="learning-view-title">{{ $lecture->title }}</h2>
+                @include('livewire.learning.partials.lecture-context', ['lecture' => $lecture])
             </div>
         </div>
 
-        @if($lecture && $lecture->notes)
-            <hr class="my-3">
-            <h4 class="h6">Lecture notes</h4>
-            <div class="border rounded p-3 bg-light">
-                <p class="small mb-0">{!! nl2br(e($lecture->notes)) !!}</p>
+        <div class="row g-4 mt-1">
+            <div class="col-lg-6">
+                <div class="learning-view-section">
+                    <div class="learning-view-section-head">
+                        <h3 class="learning-view-section-title">Videos</h3>
+                        @if($videos->isNotEmpty())
+                            <span class="badge text-bg-light">{{ $videos->count() }}</span>
+                        @endif
+                    </div>
+
+                    @if($videos->isEmpty())
+                        <div class="learning-hub-empty learning-hub-empty-compact">
+                            <i class="bi bi-camera-video-off" aria-hidden="true"></i>
+                            <p class="mb-0">No videos added yet.</p>
+                        </div>
+                    @else
+                        <div class="learning-video-preview-list">
+                            @foreach($videos as $video)
+                                @include('livewire.learning.partials.video-item', [
+                                    'video' => $video,
+                                    'modalIdPrefix' => 'learning-video',
+                                ])
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
+
+                @if($lecture->documents && $lecture->documents->isNotEmpty())
+                    <div class="learning-view-section mt-4">
+                        <div class="learning-view-section-head">
+                            <h3 class="learning-view-section-title">Resources</h3>
+                            <span class="badge text-bg-light">{{ $lecture->documents->count() }}</span>
+                        </div>
+
+                        <div class="learning-resource-list">
+                            @foreach($lecture->documents as $document)
+                                <a href="{{ asset('storage/'.$document->file_path) }}"
+                                   target="_blank"
+                                   rel="noopener"
+                                   class="learning-resource-item">
+                                    <span class="learning-resource-icon">
+                                        @if($document->file_type === 'pdf')
+                                            <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i>
+                                        @elseif(in_array($document->file_type, ['ppt', 'pptx']))
+                                            <i class="bi bi-file-earmark-slides" aria-hidden="true"></i>
+                                        @else
+                                            <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                                        @endif
+                                    </span>
+                                    <span class="min-w-0 flex-grow-1">
+                                        <span class="learning-resource-title d-block text-truncate">{{ $document->title }}</span>
+                                        <span class="learning-resource-type">{{ strtoupper($document->file_type) }}</span>
+                                    </span>
+                                    <i class="bi bi-download" aria-hidden="true"></i>
+                                </a>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
             </div>
-        @endif
+
+            <div class="col-lg-6">
+                @if($lecture->notes)
+                    <div class="learning-notes-card">
+                        <div class="learning-view-section-head mb-3">
+                            <h3 class="learning-view-section-title mb-0">Lecture notes</h3>
+                            <span class="badge text-bg-light">Instructor</span>
+                        </div>
+                        <div class="learning-notes-body">
+                            {!! nl2br(e($lecture->notes)) !!}
+                        </div>
+                    </div>
+                @endif
+
+                @if($linkedNotes->isNotEmpty())
+                    <div class="learning-notes-card {{ $lecture->notes ? 'mt-4' : '' }}">
+                        <div class="learning-view-section-head mb-3">
+                            <h3 class="learning-view-section-title mb-0">Linked notes</h3>
+                            <span class="badge text-bg-light">{{ $linkedNotes->count() }}</span>
+                        </div>
+
+                        <div class="learning-linked-notes-list">
+                            @foreach($linkedNotes as $note)
+                                <article class="learning-linked-note" wire:key="linked-note-{{ $note->id }}">
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                        <h4 class="h6 mb-0">{{ $note->title }}</h4>
+                                        @if($note->user_id === auth()->id())
+                                            <span class="badge text-bg-light border">Your note</span>
+                                        @elseif($note->is_shared)
+                                            <span class="badge text-bg-primary">Shared by {{ $note->user->name }}</span>
+                                        @endif
+                                    </div>
+                                    <div class="learning-notes-body">
+                                        {!! nl2br(e($note->body)) !!}
+                                    </div>
+                                    @include('livewire.portal.partials.note-images', ['note' => $note])
+                                    <div class="small text-muted mt-2">
+                                        Updated {{ $note->updated_at->format('d M Y, H:i') }}
+                                    </div>
+                                </article>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
+                @if(! $lecture->notes && $linkedNotes->isEmpty())
+                    <div class="learning-hub-empty">
+                        <i class="bi bi-journal-text" aria-hidden="true"></i>
+                        <p class="mb-2">No notes for this lecture yet.</p>
+                        <a href="{{ route('notes.index') }}" class="btn btn-sm btn-outline-primary">Add a note in My Notes</a>
+                    </div>
+                @endif
+            </div>
+        </div>
     @endif
 </div>
-

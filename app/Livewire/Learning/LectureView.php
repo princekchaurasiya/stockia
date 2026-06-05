@@ -3,41 +3,34 @@
 namespace App\Livewire\Learning;
 
 use App\Models\Lecture;
-use App\Models\LectureVideo;
+use App\Models\UserNote;
+use Illuminate\Support\Collection;
 use Livewire\Component;
 
 class LectureView extends Component
 {
     public ?Lecture $lecture = null;
-    /** @var \Illuminate\Support\Collection<int, LectureVideo>|null */
-    public $videos = null;
-    public ?int $selectedVideoId = null;
 
-    private function debugLog(string $hypothesisId, string $location, string $message, array $data = []): void
-    {
-        // #region agent log
-        @file_put_contents(
-            base_path('.cursor/debug-484d05.log'),
-            json_encode([
-                'sessionId' => '484d05',
-                'hypothesisId' => $hypothesisId,
-                'location' => $location,
-                'message' => $message,
-                'data' => $data,
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ]).PHP_EOL,
-            FILE_APPEND
-        );
-        // #endregion
-    }
+    /** @var Collection<int, \App\Models\LectureVideo> */
+    public $videos;
+
+    /** @var Collection<int, UserNote> */
+    public $linkedNotes;
 
     protected $listeners = [
         'lectureSelected' => 'loadLecture',
     ];
 
+    public function mount(): void
+    {
+        $this->videos = collect();
+        $this->linkedNotes = collect();
+    }
+
     public function loadLecture(int $lectureId): void
     {
-        $this->lecture = Lecture::where('is_active', true)
+        $this->lecture = Lecture::query()
+            ->where('is_active', true)
             ->with([
                 'batch',
                 'module',
@@ -51,19 +44,28 @@ class LectureView extends Component
             ->find($lectureId);
 
         $this->videos = $this->lecture?->videos ?? collect();
-        $this->selectedVideoId = $this->videos->first()?->id;
-
-        $this->debugLog('E', 'LectureView.php:loadLecture', 'Lecture loaded', [
-            'lecture_id' => $lectureId,
-            'found' => (bool) $this->lecture,
-            'video_count' => $this->videos->count(),
-            'document_count' => $this->lecture?->documents?->count() ?? 0,
-        ]);
+        $this->linkedNotes = $this->lecture ? $this->notesLinkedToLecture($this->lecture->id) : collect();
     }
 
-    public function selectVideo(int $videoId): void
+    /**
+     * @return Collection<int, UserNote>
+     */
+    private function notesLinkedToLecture(int $lectureId): Collection
     {
-        $this->selectedVideoId = $videoId;
+        $userId = auth()->id();
+
+        return UserNote::query()
+            ->with(['user', 'images'])
+            ->where('lecture_id', $lectureId)
+            ->where(function ($query) use ($userId) {
+                $query->where('user_id', $userId)
+                    ->orWhere(function ($shared) {
+                        $shared->where('is_shared', true)
+                            ->whereHas('user', fn ($user) => $user->whereIn('role', ['admin', 'superadmin']));
+                    });
+            })
+            ->orderByDesc('updated_at')
+            ->get();
     }
 
     public function render()
@@ -71,4 +73,3 @@ class LectureView extends Component
         return view('livewire.learning.lecture-view');
     }
 }
-

@@ -5,7 +5,7 @@ namespace Tests\Unit;
 use App\Support\Youtube;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 class YoutubeTest extends TestCase
 {
