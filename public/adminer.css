@@ -1,0 +1,25 @@
+/* Simple light theme overrides for Adminer */
+
+body {
+    background: #ffffff !important;
+    color: #222222 !important;
+}
+
+table,
+td,
+th {
+    background: #ffffff !important;
+    color: #222222 !important;
+}
+
+a {
+    color: #0d6efd !important;
+}
+
+input,
+select,
+textarea {
+    background: #ffffff !important;
+    color: #222222 !important;
+}
+
